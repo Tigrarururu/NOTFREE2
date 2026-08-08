@@ -1,0 +1,25 @@
+{
+    "schemaVersion": 1,
+    "id": "hidden-money-mod",
+    "version": "${version}",
+    "name": "Hidden Money Mod",
+    "description": "Autonomous money system mod with hidden mechanics",
+    "authors": ["HiddenMoneyDev"],
+    "contact": {},
+    "license": "MIT",
+    "icon": "assets/hiddenmoney/icon.png",
+    "environment": "*",
+    "entrypoints": {
+        "client": ["com.hiddenmoney.mod.HiddenMoneyModClient"],
+        "main": ["com.hiddenmoney.mod.HiddenMoneyMod"]
+    },
+    "mixins": [
+        "hiddenmoney.mixins.json"
+    ],
+    "depends": {
+        "fabricloader": ">=0.15.0",
+        "minecraft": "~1.20.4",
+        "java": ">=17",
+        "fabric-api": "*"
+    }
+}
