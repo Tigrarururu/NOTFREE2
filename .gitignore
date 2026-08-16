@@ -2,9 +2,9 @@
 # Gradle
 .gradle/
 build/
-!gradle/wrapper/gradle-wrapper.properties
+!gradle/wrapper/gradle-wrapper.jar
 
-# Java
+# Compiled Java files
 *.class
 *.jar
 *.war
@@ -17,10 +17,9 @@ build/
 *.ipr
 *.iws
 
-# Environment
-.env
-.env.local
-*.env.*
+# System
+.DS_Store
+Thumbs.db
 
 # Logs
 *.log
@@ -28,19 +27,4 @@ build/
 # Temporary files
 *.tmp
 *.temp
-*~
-.DS_Store
-Thumbs.db
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Python (if any Python files exist in project)
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
 ```
