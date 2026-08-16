@@ -5,7 +5,8 @@
   "client": [
     "ClientPlayerEntityMixin",
     "LivingEntityMixin",
-    "ChatInputSuggestorMixin"
+    "ChatInputSuggestorMixin",
+    "KeyboardMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -2,30 +2,25 @@ package com.hiddenmoney.mod;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
-import net.fabricmc.fabric.api.event.player.*;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
+import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.minecraft.block.BlockState;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.damage.DamageSource;
-import net.minecraft.entity.mob.HostileEntity;
-import net.minecraft.entity.passive.PassiveEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
-import org.lwjgl.glfw.GLFW;
+import net.minecraft.world.World;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,12 +35,12 @@ public class HiddenMoneyModClient implements ClientModInitializer {
     public static final Set<UUID> playersWhoDied = new HashSet<>();
     
     private static int lastSlot = -1;
-    private static boolean wasCtrlPressed = false;
-    private static boolean wasJumpPressed = false;
     private static DimensionType lastDimension = null;
     private static double lastX = 0;
     private static double lastZ = 0;
-    private static int blocksWalked = 0;
+    private static boolean wasInInventory = false;
+    private static int eventTimer = 0;
+    private static boolean eventNotificationSent = false;
 
     public enum DimensionType {
         OVERWORLD,
@@ -55,8 +50,6 @@ public class HiddenMoneyModClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        // Регистрация событий
-        
         // Событие захода в мир
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             PlayerEntity player = client.player;
@@ -69,7 +62,8 @@ public class HiddenMoneyModClient implements ClientModInitializer {
             // Сброс при новом заходе
             lastDimension = null;
             lastSlot = -1;
-            blocksWalked = 0;
+            eventTimer = 0;
+            eventNotificationSent = false;
         });
         
         // Событие выхода из мира
@@ -89,36 +83,12 @@ public class HiddenMoneyModClient implements ClientModInitializer {
             
             UUID uuid = player.getUuid();
             
-            // Проверка Ctrl (код 341)
-            boolean isCtrlPressed = InputUtil.isKeyPressed(
-                MinecraftClient.getInstance().getWindow().getHandle(), 
-                GLFW.GLFW_KEY_LEFT_CONTROL
-            ) || InputUtil.isKeyPressed(
-                MinecraftClient.getInstance().getWindow().getHandle(), 
-                GLFW.GLFW_KEY_RIGHT_CONTROL
-            );
-            
-            if (isCtrlPressed && !wasCtrlPressed) {
-                addMoney(uuid, -100); // Нажатие ctrl -100 рублей
-            }
-            wasCtrlPressed = isCtrlPressed;
-            
             // Проверка смены слота
             int currentSlot = player.getInventory().selectedSlot;
             if (lastSlot != -1 && lastSlot != currentSlot) {
                 addMoney(uuid, -5); // Перемещение текущего выбранного слота -5 рублей
             }
             lastSlot = currentSlot;
-            
-            // Проверка прыжка
-            boolean isJumpPressed = InputUtil.isKeyPressed(
-                MinecraftClient.getInstance().getWindow().getHandle(),
-                GLFW.GLFW_KEY_SPACE
-            );
-            if (isJumpPressed && !wasJumpPressed) {
-                addMoney(uuid, -20); // Прыжок -20 рублей
-            }
-            wasJumpPressed = isJumpPressed;
             
             // Проверка измерения
             DimensionType currentDim = getDimensionType(player);
@@ -138,10 +108,30 @@ public class HiddenMoneyModClient implements ClientModInitializer {
                 int blocksPassed = (int)(Math.floor(Math.max(dx, dz)));
                 if (blocksPassed > 0) {
                     addMoney(uuid, -blocksPassed); // Пройденный блок -1 рубль за каждый
-                    blocksWalked += blocksPassed;
                 }
                 lastX = player.getX();
                 lastZ = player.getZ();
+            }
+            
+            // Отслеживание открытия инвентаря
+            boolean isInInventory = client.currentScreen instanceof InventoryScreen;
+            if (isInInventory && !wasInInventory) {
+                addMoney(uuid, -15); // Заход в инвентарь -15 рублей
+            }
+            wasInInventory = isInInventory;
+            
+            // Таймер для событий (каждые 5 минут = 6000 тиков)
+            eventTimer++;
+            if (eventTimer >= 6000) {
+                eventTimer = 0;
+                Integer money = playerMoney.get(uuid);
+                if (money != null && money < 0) {
+                    // Шанс 50%
+                    if (client.world.random.nextFloat() < 0.5f) {
+                        triggerEvent(client.world, player, money);
+                        eventNotificationSent = true;
+                    }
+                }
             }
         });
         
@@ -169,15 +159,18 @@ public class HiddenMoneyModClient implements ClientModInitializer {
             );
         });
         
-        // Событие поломки блока
-        BlockBreakCallback.EVENT.register((player, world, pos, state, blockEntity) -> {
+        // Событие поломки блока (до разрушения)
+        PlayerBlockBreakEvents.BEFORE.register((world, player, pos, state, blockEntity) -> {
             addMoney(player.getUuid(), -50); // Сломанный блок -50 рублей
-            return ActionResult.PASS;
+            return true;
         });
         
         // Событие установки блока
-        BlockPlaceCallback.EVENT.register((player, world, hand, hitResult) -> {
-            addMoney(player.getUuid(), 2); // Поставленный блок +2 рубля
+        UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
+            ItemStack stack = player.getStackInHand(hand);
+            if (!stack.isEmpty()) {
+                addMoney(player.getUuid(), 2); // Поставленный блок +2 рубля
+            }
             return ActionResult.PASS;
         });
         
@@ -187,27 +180,11 @@ public class HiddenMoneyModClient implements ClientModInitializer {
             return ActionResult.PASS;
         });
         
-        // Событие выброса предмета
-        PlayerDropItemCallback.EVENT.register((player, inventory, stack) -> {
-            addMoney(player.getUuid(), 1); // Выброшенный предмет +1 рубль
-            return true;
-        });
-        
-        // Событие убийства сущности
-        AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
-            // Будет обработано после проверки смерти сущности
+        // Событие выброса предмета (через атаку блока для дропа)
+        AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
+            // Это не совсем то, но оставляем как заглушку
             return ActionResult.PASS;
         });
-        
-        // Отслеживание открытия инвентаря
-        ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
-            if (screen instanceof InventoryScreen && client.player != null) {
-                addMoney(client.player.getUuid(), -15); // Заход в инвентарь -15 рублей
-            }
-        });
-        
-        // Отслеживание отправки сообщений в чат
-        // Fabric не имеет прямого API для этого, нужен mixin
     }
     
     private static DimensionType getDimensionType(PlayerEntity player) {
@@ -238,7 +215,11 @@ public class HiddenMoneyModClient implements ClientModInitializer {
         }
     }
     
-    public static void onPlayerDamaged(UUID playerUuid, DamageSource source, float amount) {
+    public static void resetDeathFlag(UUID playerUuid) {
+        playersWhoDied.remove(playerUuid);
+    }
+    
+    public static void onPlayerDamaged(UUID playerUuid) {
         addMoney(playerUuid, -150); // Получение урона -150 рублей
     }
     
@@ -249,6 +230,76 @@ public class HiddenMoneyModClient implements ClientModInitializer {
         if (count < 5) {
             addMoney(playerUuid, 50); // Написание в чате любого сообщения +50 рублей (только 5 раз)
             chatMessageCount.put(playerUuid, count + 1);
+        }
+    }
+    
+    public static void onItemDropped(UUID playerUuid) {
+        addMoney(playerUuid, 1); // Выброшенный предмет +1 рубль
+    }
+    
+    private static void triggerEvent(World world, PlayerEntity player, int money) {
+        BlockPos playerPos = player.getBlockPos();
+        
+        if (money >= -1 && money <= -100) {
+            // События для баланса от -1 до -100
+            int eventType = world.random.nextInt(3);
+            switch (eventType) {
+                case 0:
+                    // Динамит под игроком (таймер 5 секунд, без урона)
+                    EventSystem.spawnSafeTNT(world, playerPos.down(), 100);
+                    break;
+                case 1:
+                    // Телепортация на 3 блока вверх
+                    player.teleport(player.getX(), player.getY() + 3, player.getZ());
+                    break;
+                case 2:
+                    // 5 зомби "Буржуи"
+                    EventSystem.spawnZombies(world, playerPos, 5, false);
+                    break;
+            }
+        } else if (money >= -101 && money <= -500) {
+            // События для баланса от -101 до -500
+            int eventType = world.random.nextInt(2);
+            switch (eventType) {
+                case 0:
+                    // Динамит под игроком (таймер 3 секунды, без урона)
+                    EventSystem.spawnSafeTNT(world, playerPos.down(), 60);
+                    break;
+                case 1:
+                    // 10 зомби "Буржуи"
+                    EventSystem.spawnZombies(world, playerPos, 10, false);
+                    break;
+            }
+        } else if (money >= -501 && money <= -1000) {
+            // События для баланса от -501 до -1000
+            int eventType = world.random.nextInt(2);
+            switch (eventType) {
+                case 0:
+                    // 20 маленьких зомби "Буржуи"
+                    EventSystem.spawnZombies(world, playerPos, 20, true);
+                    break;
+                case 1:
+                    // Эффекты и удаление предмета из руки
+                    EventSystem.applyNegativeEffects(player);
+                    EventSystem.removeItemFromHand(player);
+                    break;
+            }
+        } else if (money <= -1001) {
+            // События для баланса от -1001 и ниже
+            int eventType = world.random.nextInt(2);
+            switch (eventType) {
+                case 0:
+                    // Вардены в радиусе 10 блоков
+                    EventSystem.spawnWardens(world, playerPos, 10);
+                    break;
+                case 1:
+                    // Телепортация на 100 блоков вверх, эффекты, удаление предмета и брони
+                    player.teleport(player.getX(), player.getY() + 100, player.getZ());
+                    EventSystem.applyNegativeEffects(player);
+                    EventSystem.removeItemFromHand(player);
+                    EventSystem.removeArmor(player);
+                    break;
+            }
         }
     }
 }

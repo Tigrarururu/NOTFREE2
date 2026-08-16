@@ -1,6 +1,7 @@
 package com.hiddenmoney.mod.mixin;
 
 import com.hiddenmoney.mod.HiddenMoneyModClient;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.damage.DamageSource;
@@ -19,7 +20,7 @@ public class LivingEntityMixin {
         
         // Отслеживание получения урона игроком
         if (entity instanceof net.minecraft.entity.player.PlayerEntity) {
-            HiddenMoneyModClient.onPlayerDamaged(entity.getUuid(), source, amount);
+            HiddenMoneyModClient.onPlayerDamaged(entity.getUuid());
         }
     }
     

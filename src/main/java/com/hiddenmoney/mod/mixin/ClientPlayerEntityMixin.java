@@ -22,5 +22,16 @@ public class ClientPlayerEntityMixin {
         if (player.isDead()) {
             HiddenMoneyModClient.onPlayerDeath(player.getUuid());
         }
+        
+        // Сброс флага смерти при возрождении
+        if (player.isAlive() && HiddenMoneyModClient.playersWhoDied.contains(player.getUuid())) {
+            HiddenMoneyModClient.resetDeathFlag(player.getUuid());
+        }
+    }
+    
+    @Inject(method = "jump", at = @At("HEAD"))
+    private void onJump(CallbackInfo ci) {
+        ClientPlayerEntity player = (ClientPlayerEntity) (Object) this;
+        HiddenMoneyModClient.addMoney(player.getUuid(), -20); // Прыжок -20 рублей
     }
 }
